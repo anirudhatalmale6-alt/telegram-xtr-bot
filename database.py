@@ -49,7 +49,32 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_referrals_referrer ON referrals(referrer_id);
         CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
     """)
+    # Seed default settings if they don't exist
+    cur.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('stars_price', ?)", (os.getenv("STARS_PRICE", "500"),))
+    cur.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('referrals_needed', ?)", (os.getenv("REFERRALS_NEEDED", "3"),))
+    conn.commit()
+    conn.close()
+
+
+def get_setting(key, default=None):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM settings WHERE key = ?", (key,))
+    row = cur.fetchone()
+    conn.close()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
     conn.close()
 
@@ -104,7 +129,7 @@ def register_referral(referrer_id, referred_id):
         # Check if referrer has reached the threshold
         cur.execute("SELECT referral_count FROM users WHERE user_id = ?", (referrer_id,))
         row = cur.fetchone()
-        referrals_needed = int(os.getenv("REFERRALS_NEEDED", "3"))
+        referrals_needed = int(get_setting("referrals_needed", "3"))
         if row and row["referral_count"] >= referrals_needed:
             cur.execute(
                 "UPDATE users SET has_free_access = 1, updated_at = datetime('now') WHERE user_id = ?",

@@ -30,8 +30,14 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 FREE_CHANNEL_ID = int(os.getenv("FREE_CHANNEL_ID", "0"))
 PREMIUM_CHANNEL_ID = int(os.getenv("PREMIUM_CHANNEL_ID", "0"))
-STARS_PRICE = int(os.getenv("STARS_PRICE", "500"))
-REFERRALS_NEEDED = int(os.getenv("REFERRALS_NEEDED", "3"))
+
+
+def get_stars_price():
+    return int(db.get_setting("stars_price", "500"))
+
+
+def get_referrals_needed():
+    return int(db.get_setting("referrals_needed", "3"))
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -75,7 +81,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await context.bot.send_message(
                         chat_id=referrer_id,
                         text=(
-                            f"🎉 Congratulations! You've reached {REFERRALS_NEEDED} referrals!\n\n"
+                            f"🎉 Congratulations! You've reached {get_referrals_needed()} referrals!\n\n"
                             f"You've earned FREE access to our channel.\n"
                             f"Here's your invite link (single use):\n{free_link}"
                         ),
@@ -86,12 +92,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Notify referrer of new referral
                 try:
                     referrer = db.get_user(referrer_id)
-                    remaining = REFERRALS_NEEDED - referrer["referral_count"]
+                    remaining = get_referrals_needed() - referrer["referral_count"]
                     await context.bot.send_message(
                         chat_id=referrer_id,
                         text=(
                             f"👤 New referral! {user.first_name} joined using your link.\n"
-                            f"You now have {referrer['referral_count']}/{REFERRALS_NEEDED} referrals."
+                            f"You now have {referrer['referral_count']}/{get_referrals_needed()} referrals."
                             + (f"\n{remaining} more to go!" if remaining > 0 else "")
                         ),
                     )
@@ -114,8 +120,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         f"Welcome, {user.first_name}! 👋\n\n"
         f"This bot manages access to our channels:\n\n"
-        f"📢 Free Channel — Earn access by referring {REFERRALS_NEEDED} friends\n"
-        f"⭐ Premium Channel — One-time purchase of {STARS_PRICE} Stars for lifetime access\n\n"
+        f"📢 Free Channel — Earn access by referring {get_referrals_needed()} friends\n"
+        f"⭐ Premium Channel — One-time purchase of {get_stars_price()} Stars for lifetime access\n\n"
         f"Choose an option below:"
     )
     await update.message.reply_text(welcome_text, reply_markup=reply_markup)
@@ -146,6 +152,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_admin_members(query, context)
     elif data == "admin_stats":
         await handle_admin_stats(query, context)
+    elif data == "admin_setprice":
+        await handle_admin_setprice_start(query, context)
+    elif data == "admin_setreferrals":
+        await handle_admin_setreferrals_start(query, context)
     elif data.startswith("admin_grant_"):
         await handle_admin_grant_start(query, context)
     elif data.startswith("admin_revoke_"):
@@ -172,18 +182,35 @@ async def handle_buy_premium(query, context):
         )
         return
 
-    # Send Stars invoice
-    await context.bot.send_invoice(
-        chat_id=query.message.chat_id,
-        title="Premium Channel - Lifetime Access",
-        description=(
-            f"One-time payment of {STARS_PRICE} Stars for lifetime access "
-            f"to the premium ad-free channel."
+    # Update the current message to show payment is being processed
+    await query.edit_message_text(
+        f"⭐ Sending payment invoice for {get_stars_price()} Stars...\n\n"
+        f"Please check below for the payment button.",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("« Back", callback_data="back_main")]]
         ),
-        payload=f"premium_access_{user_id}",
-        currency="XTR",
-        prices=[LabeledPrice("Lifetime Premium Access", STARS_PRICE)],
     )
+
+    # Send Stars invoice as a new message
+    try:
+        await context.bot.send_invoice(
+            chat_id=query.message.chat_id,
+            title="Premium Channel - Lifetime Access",
+            description=(
+                f"One-time payment of {get_stars_price()} Stars for lifetime access "
+                f"to the premium ad-free channel."
+            ),
+            payload=f"premium_access_{user_id}",
+            provider_token="",
+            currency="XTR",
+            prices=[LabeledPrice("Lifetime Premium Access", get_stars_price())],
+        )
+    except Exception as e:
+        logger.error(f"Failed to send invoice to {user_id}: {e}")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=f"❌ Failed to send invoice: {e}\n\nPlease try again later.",
+        )
 
 
 # ─── Payment Handlers ─────────────────────────────────────────────────────────
@@ -247,14 +274,14 @@ async def handle_my_referral(query, context):
     referral_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
     user = db.get_user(user_id)
     count = user["referral_count"] if user else 0
-    remaining = max(0, REFERRALS_NEEDED - count)
+    remaining = max(0, get_referrals_needed() - count)
 
     text = (
         f"👥 Your Referral Link:\n\n"
         f"{referral_link}\n\n"
         f"Share this link with friends. When they start the bot, "
         f"you'll get credit for the referral.\n\n"
-        f"📊 Your referrals: {count}/{REFERRALS_NEEDED}\n"
+        f"📊 Your referrals: {count}/{get_referrals_needed()}\n"
     )
     if remaining > 0:
         text += f"You need {remaining} more to earn free channel access!"
@@ -287,7 +314,7 @@ async def handle_my_status(query, context):
         f"📊 Your Status\n\n"
         f"⭐ Premium Channel: {premium_status}\n"
         f"📢 Free Channel: {free_status}\n"
-        f"👥 Referrals: {referrals}/{REFERRALS_NEEDED}\n"
+        f"👥 Referrals: {referrals}/{get_referrals_needed()}\n"
         f"📅 Member since: {str(user['created_at'])[:10]}"
     )
 
@@ -333,6 +360,8 @@ async def handle_admin_menu(query, context):
         [InlineKeyboardButton("✅ Grant Free Access", callback_data="admin_grant_free")],
         [InlineKeyboardButton("❌ Revoke Premium Access", callback_data="admin_revoke_premium")],
         [InlineKeyboardButton("❌ Revoke Free Access", callback_data="admin_revoke_free")],
+        [InlineKeyboardButton(f"💲 Set Price (current: {get_stars_price()})", callback_data="admin_setprice")],
+        [InlineKeyboardButton(f"🔢 Set Referrals Needed (current: {get_referrals_needed()})", callback_data="admin_setreferrals")],
         [InlineKeyboardButton("« Back to Main", callback_data="back_main")],
     ]
 
@@ -434,6 +463,36 @@ async def handle_admin_members(query, context):
     )
 
 
+# ─── Admin Settings ───────────────────────────────────────────────────────────
+
+async def handle_admin_setprice_start(query, context):
+    if not is_admin(query.from_user.id):
+        return
+    context.user_data["admin_action"] = "setprice"
+    await query.edit_message_text(
+        f"💲 Set Stars Price\n\n"
+        f"Current price: {get_stars_price()} Stars\n\n"
+        f"Send the new price (a number, e.g. 300):",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("« Cancel", callback_data="back_admin")]]
+        ),
+    )
+
+
+async def handle_admin_setreferrals_start(query, context):
+    if not is_admin(query.from_user.id):
+        return
+    context.user_data["admin_action"] = "setreferrals"
+    await query.edit_message_text(
+        f"🔢 Set Referrals Needed\n\n"
+        f"Current requirement: {get_referrals_needed()} referrals\n\n"
+        f"Send the new number of referrals needed (e.g. 5):",
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("« Cancel", callback_data="back_admin")]]
+        ),
+    )
+
+
 # ─── Admin Grant/Revoke ───────────────────────────────────────────────────────
 
 async def handle_admin_grant_start(query, context):
@@ -480,6 +539,35 @@ async def handle_admin_text_input(update: Update, context: ContextTypes.DEFAULT_
         return
 
     text = update.message.text.strip()
+
+    # Handle settings changes
+    if action == "setprice":
+        try:
+            new_price = int(text)
+            if new_price < 1:
+                await update.message.reply_text("Price must be at least 1 Star.")
+                return
+            db.set_setting("stars_price", new_price)
+            await update.message.reply_text(f"✅ Stars price updated to {new_price} Stars.")
+        except ValueError:
+            await update.message.reply_text("Please send a valid number.")
+            return
+        context.user_data.pop("admin_action", None)
+        return
+
+    if action == "setreferrals":
+        try:
+            new_count = int(text)
+            if new_count < 1:
+                await update.message.reply_text("Referrals needed must be at least 1.")
+                return
+            db.set_setting("referrals_needed", new_count)
+            await update.message.reply_text(f"✅ Referrals needed updated to {new_count}.")
+        except ValueError:
+            await update.message.reply_text("Please send a valid number.")
+            return
+        context.user_data.pop("admin_action", None)
+        return
 
     try:
         target_user_id = int(text)
