@@ -288,7 +288,7 @@ async def handle_my_status(query, context):
         f"⭐ Premium Channel: {premium_status}\n"
         f"📢 Free Channel: {free_status}\n"
         f"👥 Referrals: {referrals}/{REFERRALS_NEEDED}\n"
-        f"📅 Member since: {user['created_at'].strftime('%Y-%m-%d')}"
+        f"📅 Member since: {str(user['created_at'])[:10]}"
     )
 
     await query.edit_message_text(
@@ -375,7 +375,7 @@ async def handle_admin_payments(query, context):
         lines = ["💰 Recent Payments\n"]
         for p in payments:
             name = p["first_name"] or p["username"] or str(p["user_id"])
-            date = p["created_at"].strftime("%Y-%m-%d %H:%M")
+            date = str(p["created_at"])[:16]
             lines.append(f"• {name} — {p['amount']} Stars — {date}")
         text = "\n".join(lines)
 
@@ -422,7 +422,7 @@ async def handle_admin_members(query, context):
         lines = [f"👑 Lifetime Members ({total} total)\n"]
         for m in members:
             name = m["first_name"] or m["username"] or str(m["user_id"])
-            date = m["created_at"].strftime("%Y-%m-%d")
+            date = str(m["created_at"])[:10]
             lines.append(f"• {name} (ID: {m['user_id']}) — since {date}")
         text = "\n".join(lines)
 
